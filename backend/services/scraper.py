@@ -39,17 +39,25 @@ RSS_SOURCES = [
     },
     {
         "name": "SEC",
-        "url": (
-            "https://www.sec.gov/cgi-bin/browse-edgar"
-            "?action=getcurrent&type=&dateb=&owner=include"
-            "&count=10&search_text=&output=atom"
-        ),
+        "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&dateb=&owner=include&count=10&search_text=&output=atom",
         "jurisdiction": "USA",
         "source_type": "rss",
     },
     {
         "name": "EUR-Lex",
         "url": "https://eur-lex.europa.eu/rss/legisMain.xml",
+        "jurisdiction": "EU",
+        "source_type": "rss",
+    },
+    {
+        "name": "FATF",
+        "url": "https://www.fatf-gafi.org/rss/fatf-publications.xml",
+        "jurisdiction": "Global",
+        "source_type": "rss",
+    },
+    {
+        "name": "FCA",
+        "url": "https://www.fca.org.uk/news/rss.xml",
         "jurisdiction": "EU",
         "source_type": "rss",
     },
@@ -92,7 +100,12 @@ def _scrape_rss(source: dict) -> list[RawScrapedItem]:
     """Parse an RSS/Atom feed and return structured items."""
     items: list[RawScrapedItem] = []
     try:
-        feed = feedparser.parse(source["url"])
+        # Fetch with User-Agent headers (some gov sites block default)
+        try:
+            resp = requests.get(source["url"], headers=HEADERS, timeout=15)
+            feed = feedparser.parse(resp.content)
+        except Exception:
+            feed = feedparser.parse(source["url"])
         for entry in feed.entries[:10]:  # limit to latest 10
             title = entry.get("title", "Untitled")
             link = entry.get("link", source["url"])
@@ -183,7 +196,10 @@ def _scrape_mca() -> list[RawScrapedItem]:
     items: list[RawScrapedItem] = []
     source = WEBSITE_SOURCES[1]
     try:
-        resp = requests.get(source["url"], headers=HEADERS, timeout=15)
+        resp = requests.get(source["url"], headers=HEADERS, timeout=15, allow_redirects=True)
+        if resp.status_code == 403:
+            print(f"  ⚠️ MCA website: 403 Forbidden (blocked by server, skipping)")
+            return items
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
