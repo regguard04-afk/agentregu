@@ -1,0 +1,12 @@
+crewai
+boto3
+fastapi
+uvicorn
+feedparser
+beautifulsoup4
+requests
+python-dotenv
+pydantic
+sqlalchemy
+lxml
+httpx
