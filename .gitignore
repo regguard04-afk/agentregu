@@ -1,0 +1,25 @@
+# Environment (contains AWS credentials!)
+.env
+
+# Database
+data/compliance.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Raw scraped data (auto-generated)
+data/raw/*.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
