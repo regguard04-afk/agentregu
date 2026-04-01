@@ -20,6 +20,10 @@ data/raw/*.json
 .vscode/
 .idea/
 
+# Node.js / Frontend
+node_modules/
+frontend/dist/
+
 # OS
 .DS_Store
 Thumbs.db
