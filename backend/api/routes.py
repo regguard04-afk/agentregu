@@ -211,3 +211,113 @@ def chat_endpoint(body: ChatRequest):
         answer=result["answer"],
         sources=result["sources"],
     )
+
+
+# ─── Frontend-compatible aliases ──────────────────────────────────────
+# The frontend calls these paths — they map to our existing logic.
+
+
+@router.get("/updates")
+def get_updates():
+    """Alias for /items — used by the frontend."""
+    items = get_all_items(limit=100)
+    return {
+        "success": True,
+        "count": len(items),
+        "data": [item.model_dump(mode="json") for item in items],
+    }
+
+
+@router.get("/updates/urgent")
+def get_urgent_updates():
+    """Return only critical and high urgency items."""
+    critical = get_all_items(urgency="critical", limit=100)
+    high = get_all_items(urgency="high", limit=100)
+    items = critical + high
+    return {
+        "success": True,
+        "count": len(items),
+        "data": [item.model_dump(mode="json") for item in items],
+    }
+
+
+@router.get("/updates/jurisdiction/{jurisdiction_name}")
+def get_by_jurisdiction(jurisdiction_name: str):
+    """Filter updates by jurisdiction."""
+    items = get_all_items(jurisdiction=jurisdiction_name, limit=100)
+    return {
+        "success": True,
+        "count": len(items),
+        "data": [item.model_dump(mode="json") for item in items],
+    }
+
+
+@router.get("/updates/{update_id}")
+def get_update_by_id(update_id: str):
+    """Alias for /items/{id} — used by the frontend."""
+    item = get_item_by_id(update_id)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"Update {update_id} not found.")
+    return {"success": True, "data": item.model_dump(mode="json")}
+
+
+@router.get("/status")
+def get_pipeline_status_alias():
+    """Alias for /pipeline/status — used by the frontend."""
+    return {
+        "running": _pipeline_status["running"],
+        "last_run": _pipeline_status["last_run"],
+        "last_result": _pipeline_status["last_result"],
+        "status": "running" if _pipeline_status["running"] else "idle",
+    }
+
+
+@router.get("/controls")
+def get_controls():
+    """Return all unique controls found across processed items."""
+    items = get_all_items(limit=1000)
+    controls_map: dict = {}
+    for item in items:
+        for ctrl in item.affected_controls:
+            key = ctrl.control_id
+            if key not in controls_map:
+                controls_map[key] = {
+                    "control_id": ctrl.control_id,
+                    "control_name": ctrl.control_name,
+                    "policy_name": ctrl.policy_name,
+                    "affected_items": 0,
+                }
+            controls_map[key]["affected_items"] += 1
+    return {
+        "success": True,
+        "count": len(controls_map),
+        "data": list(controls_map.values()),
+    }
+
+
+@router.post("/analyze")
+def trigger_analysis():
+    """Alias for /pipeline/run — used by the frontend 'Run Analysis' button."""
+    if _pipeline_status["running"]:
+        raise HTTPException(status_code=409, detail="Pipeline is already running.")
+
+    def _run():
+        _pipeline_status["running"] = True
+        try:
+            results = run_pipeline(max_items=5)
+            _pipeline_status["last_run"] = datetime.utcnow().isoformat()
+            _pipeline_status["last_result"] = f"{len(results)} items processed"
+        except Exception as e:
+            _pipeline_status["last_result"] = f"Error: {str(e)}"
+        finally:
+            _pipeline_status["running"] = False
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return {
+        "success": True,
+        "message": "Analysis pipeline started.",
+        "status": "running",
+    }
+
