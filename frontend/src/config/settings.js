@@ -4,7 +4,7 @@
 // All API calls read from this config.
 
 const CONFIG = {
-  apiBaseUrl: "http://127.0.0.1:8000"
+  apiBaseUrl: "https://regulatory-agent-backend.onrender.com"
 };
 
 export default CONFIG;
