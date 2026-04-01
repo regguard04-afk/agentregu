@@ -6,9 +6,7 @@ import Sidebar from "./components/Sidebar.jsx";
 import TopHeader from "./components/TopHeader.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import AlertFeed from "./pages/AlertFeed.jsx";
-import ActionPlans from "./pages/ActionPlans.jsx";
 import Predictions from "./pages/Predictions.jsx";
-import ControlsLibrary from "./pages/ControlsLibrary.jsx";
 import QueryEngine from "./pages/QueryEngine.jsx";
 import Settings from "./pages/Settings.jsx";
 import { getUpdates } from "./services/dataService.js";
@@ -80,9 +78,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/alerts" element={<AlertFeed />} />
-              <Route path="/actions" element={<ActionPlans />} />
               <Route path="/predictions" element={<Predictions />} />
-              <Route path="/controls" element={<ControlsLibrary />} />
               <Route path="/query" element={<QueryEngine />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>

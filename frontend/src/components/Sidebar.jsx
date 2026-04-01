@@ -16,9 +16,7 @@ import {
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/alerts", label: "Alert Feed", icon: Bell, badge: true },
-  { path: "/actions", label: "Action Plans", icon: ClipboardList },
   { path: "/predictions", label: "Predictions", icon: Radio },
-  { path: "/controls", label: "Controls Library", icon: ShieldCheck },
   { path: "/query", label: "Query Engine", icon: Search },
   { path: "/settings", label: "Settings", icon: Settings },
 ];

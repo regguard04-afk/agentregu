@@ -8,9 +8,7 @@ import { triggerAnalysis } from "../services/dataService.js";
 const PAGE_TITLES = {
   "/": "Dashboard",
   "/alerts": "Alert Feed",
-  "/actions": "Action Plans",
   "/predictions": "Predictions",
-  "/controls": "Controls Library",
   "/query": "Query Engine",
   "/settings": "Settings",
 };
