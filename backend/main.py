@@ -1,17 +1,23 @@
 """Application entry point — starts the FastAPI server."""
 
+import os
+
 import uvicorn
 
 from backend.config import API_HOST, API_PORT
 
 
 def main():
-    print(f"\n🚀 Starting Regulatory Intelligence API on {API_HOST}:{API_PORT}\n")
+    # Render sets the PORT env var — use it if available
+    port = int(os.getenv("PORT", API_PORT))
+    host = os.getenv("HOST", "0.0.0.0")
+
+    print(f"\n🚀 Starting Regulatory Intelligence API on {host}:{port}\n")
     uvicorn.run(
         "backend.api.main:app",
-        host=API_HOST,
-        port=API_PORT,
-        reload=True,
+        host=host,
+        port=port,
+        reload=False,
     )
 
 
