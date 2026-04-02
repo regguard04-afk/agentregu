@@ -1,7 +1,8 @@
 """
 Regulatory source scraper — RSS feeds and website scraping.
 
-Hardcodes 5 live regulatory sources and saves raw content to data/raw/.
+Scrapes 7+ live regulatory sources (RBI, SEBI, SEC, FCA, etc.)
+and saves raw content to data/raw/.
 """
 
 import json
@@ -31,38 +32,48 @@ HEADERS = {
 # ─── Source Definitions ───────────────────────────────────────────────
 
 RSS_SOURCES = [
+    # ── India ──────────────────────────────────────────
     {
         "name": "RBI",
-        "url": "https://www.rbi.org.in/rss/RBINotificationsAndCirculars.xml",
+        "url": "https://www.rbi.org.in/pressreleases_rss.xml",
         "jurisdiction": "India",
         "source_type": "rss",
     },
     {
+        "name": "RBI",
+        "url": "https://www.rbi.org.in/notifications_rss.xml",
+        "jurisdiction": "India",
+        "source_type": "rss",
+    },
+    {
+        "name": "SEBI",
+        "url": "https://www.sebi.gov.in/sebirss.xml",
+        "jurisdiction": "India",
+        "source_type": "rss",
+    },
+    # ── USA ────────────────────────────────────────────
+    {
         "name": "SEC",
-        "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&dateb=&owner=include&count=10&search_text=&output=atom",
+        "url": "https://www.sec.gov/news/pressreleases.rss",
         "jurisdiction": "USA",
         "source_type": "rss",
     },
     {
-        "name": "EUR-Lex",
-        "url": "https://eur-lex.europa.eu/rss/legisMain.xml",
-        "jurisdiction": "EU",
+        "name": "SEC",
+        "url": "https://www.sec.gov/news/statements.rss",
+        "jurisdiction": "USA",
         "source_type": "rss",
     },
-    {
-        "name": "FATF",
-        "url": "https://www.fatf-gafi.org/rss/fatf-publications.xml",
-        "jurisdiction": "Global",
-        "source_type": "rss",
-    },
+    # ── UK / EU ────────────────────────────────────────
     {
         "name": "FCA",
         "url": "https://www.fca.org.uk/news/rss.xml",
-        "jurisdiction": "EU",
+        "jurisdiction": "UK",
         "source_type": "rss",
     },
 ]
 
+# Website sources are kept as fallback but SEBI now uses RSS
 WEBSITE_SOURCES = [
     {
         "name": "SEBI",
@@ -70,12 +81,6 @@ WEBSITE_SOURCES = [
             "https://www.sebi.gov.in/sebiweb/other/"
             "OtherAction.do?doNewsandEvents=yes"
         ),
-        "jurisdiction": "India",
-        "source_type": "website",
-    },
-    {
-        "name": "MCA",
-        "url": "https://www.mca.gov.in/content/mca/global/en/home.html",
         "jurisdiction": "India",
         "source_type": "website",
     },
@@ -352,14 +357,16 @@ def scrape_all_sources() -> list[RawScrapedItem]:
     print("\n🔍 Scraping regulatory sources...\n")
     all_items: list[RawScrapedItem] = []
 
-    # RSS sources
+    # RSS sources (RBI, SEBI, SEC, FCA)
     for source in RSS_SOURCES:
         items = _scrape_rss(source)
         all_items.extend(items)
 
-    # Website sources
-    all_items.extend(_scrape_sebi())
-    all_items.extend(_scrape_mca())
+    # Website fallback (only if SEBI RSS returned 0)
+    sebi_count = sum(1 for i in all_items if i.source == "SEBI")
+    if sebi_count == 0:
+        print("  ⚠️ SEBI RSS empty, trying website scrape...")
+        all_items.extend(_scrape_sebi())
 
     # Fallback: if live scraping got nothing, use seed data
     if not all_items:
