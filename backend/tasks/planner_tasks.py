@@ -1,19 +1,42 @@
-"""Tasks for the Remediation Planner Agent."""
+"""
+Tasks for the Remediation Planner Agent — built with CrewAI.
 
-from backend.agents.remediation_planner import SYSTEM_PROMPT
-from backend.services.bedrock_service import invoke_llm
+Uses crewai.Task to define structured task definitions that are
+assigned to the Remediation Planner agent during crew execution.
+The planner task receives context from both the analyst and mapper tasks.
+"""
+
+from crewai import Agent, Task
 
 
-def run_planner_task(
+def create_planner_task(
+    agent: Agent,
+    analyst_task: Task,
+    mapper_task: Task,
     title: str,
     summary: str,
     obligations: list[str],
     control_gaps: list[str],
     urgency: str,
-) -> str:
+) -> Task:
     """
-    Run the remediation planning task.
-    Returns the raw LLM response (JSON string).
+    Create a CrewAI Task for remediation planning.
+
+    This task generates a concrete action plan. It receives context
+    from both the analyst and mapper tasks to leverage their outputs.
+
+    Args:
+        agent: The CrewAI Remediation Planner agent.
+        analyst_task: The preceding analyst task (for context).
+        mapper_task: The preceding mapper task (for context).
+        title: The regulatory item title.
+        summary: The regulatory item summary.
+        obligations: List of regulatory obligations.
+        control_gaps: List of identified control gaps.
+        urgency: The urgency level.
+
+    Returns:
+        A crewai.Task instance ready for crew execution.
     """
     obligations_text = "\n".join(f"  - {ob}" for ob in obligations)
     gaps_text = (
@@ -22,7 +45,7 @@ def run_planner_task(
         else "  - None identified"
     )
 
-    user_prompt = f"""Generate a detailed remediation action plan for the following regulatory update.
+    description = f"""Generate a detailed remediation action plan for the following regulatory update.
 
 ## Regulatory Update
 - **Title**: {title}
@@ -71,4 +94,16 @@ Prioritize control gaps — these are the highest risk areas.
 
 Return ONLY the JSON object, no markdown fences, no extra text."""
 
-    return invoke_llm(SYSTEM_PROMPT, user_prompt)
+    expected_output = (
+        "A valid JSON object containing: recommended_actions (array of objects "
+        "with task_id, task_description, priority (P1/P2/P3), suggested_owner "
+        "(Legal/Security/IT/HR/Ops), suggested_deadline_days (integer), and "
+        "evidence_required (string))."
+    )
+
+    return Task(
+        description=description,
+        expected_output=expected_output,
+        agent=agent,
+        context=[analyst_task, mapper_task],  # CrewAI context from both prior tasks
+    )

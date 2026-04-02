@@ -1,16 +1,30 @@
-"""Tasks for the Regulatory Analyst Agent."""
+"""
+Tasks for the Regulatory Analyst Agent — built with CrewAI.
 
-from backend.agents.regulatory_analyst import SYSTEM_PROMPT
+Uses crewai.Task to define structured task definitions that are
+assigned to the Regulatory Analyst agent during crew execution.
+"""
+
+from crewai import Agent, Task
+
 from backend.models.schemas import RawScrapedItem
-from backend.services.bedrock_service import invoke_llm
 
 
-def run_analyst_task(raw_item: RawScrapedItem) -> str:
+def create_analyst_task(agent: Agent, raw_item: RawScrapedItem) -> Task:
     """
-    Run the analysis task for a single raw regulatory item.
-    Returns the raw LLM response (JSON string).
+    Create a CrewAI Task for analyzing a single raw regulatory item.
+
+    The task instructs the analyst agent to parse the raw content
+    and produce structured intelligence in JSON format.
+
+    Args:
+        agent: The CrewAI Regulatory Analyst agent.
+        raw_item: The raw scraped regulatory item to analyze.
+
+    Returns:
+        A crewai.Task instance ready for crew execution.
     """
-    user_prompt = f"""Analyze the following regulatory update and produce structured intelligence.
+    description = f"""Analyze the following regulatory update and produce structured intelligence.
 
 ## Raw Regulatory Content
 
@@ -48,4 +62,15 @@ Produce a JSON object with EXACTLY these fields:
 
 Return ONLY the JSON object, no markdown fences, no extra text."""
 
-    return invoke_llm(SYSTEM_PROMPT, user_prompt)
+    expected_output = (
+        "A valid JSON object containing: title, source, url, jurisdiction, "
+        "regulatory_topic, published_at, summary, obligations (array), "
+        "urgency (critical/high/medium/low), relevance_score (0.0-1.0), "
+        "and prediction_signals (array of strings)."
+    )
+
+    return Task(
+        description=description,
+        expected_output=expected_output,
+        agent=agent,
+    )

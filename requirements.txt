@@ -4,7 +4,10 @@ uvicorn==0.30.0
 python-dotenv==1.0.0
 pydantic==2.7.0
 
-# LLM (Bedrock via litellm)
+# CrewAI — Multi-Agent Orchestration Framework
+crewai[tools]==0.108.0
+
+# LLM (Bedrock via litellm — also used by CrewAI internally)
 litellm==1.55.0
 tiktoken==0.7.0
 

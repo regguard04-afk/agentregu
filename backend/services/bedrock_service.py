@@ -1,9 +1,12 @@
 """
-Bedrock LLM service — provides LLM invocation via litellm.
+Bedrock LLM service — provides direct LLM invocation via litellm.
 
-litellm is the same library CrewAI uses under the hood for Bedrock.
-We use it directly because the published crewai package (0.11.x) has
-numpy<2/langchain<0.2 deps that are incompatible with Python 3.14.
+NOTE: This module is retained as a utility for direct LLM calls
+(e.g., the chat service). The main pipeline now uses CrewAI's
+built-in LLM integration (crewai.LLM) which also uses litellm
+under the hood for Bedrock.
+
+For the CrewAI-powered agent pipeline, see backend/crew.py.
 """
 
 import json
@@ -25,6 +28,9 @@ def invoke_llm(system_prompt: str, user_prompt: str) -> str:
     """
     Send a system + user prompt to Bedrock via litellm and return
     the assistant's text response.
+
+    This is used by the chat service for direct LLM calls.
+    The agent pipeline uses CrewAI's built-in LLM instead.
     """
     response = litellm.completion(
         model=BEDROCK_LLM_MODEL_STRING,

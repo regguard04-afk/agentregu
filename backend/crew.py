@@ -1,15 +1,35 @@
 """
-Pipeline orchestrator — runs the 3-agent sequential pipeline
-on each scraped regulatory item.
+CrewAI Pipeline Orchestrator — the core of the multi-agent system.
 
-Uses litellm for Bedrock LLM calls (same lib CrewAI uses internally).
-The three agents run sequentially: Analyst → Mapper → Planner.
+Uses the REAL CrewAI framework to orchestrate a 3-agent sequential
+pipeline for regulatory intelligence processing:
+
+  1. Regulatory Analyst Agent  → structured intelligence
+  2. Compliance Mapper Agent   → control mapping (via Bedrock KB)
+  3. Remediation Planner Agent → actionable task plans
+
+Each scraped regulatory item is processed by a CrewAI Crew running
+in Process.sequential mode, where task outputs chain automatically.
+
+Key CrewAI components used:
+  - crewai.Agent      — defines each AI agent with role/goal/backstory
+  - crewai.Task       — defines structured tasks with context chaining
+  - crewai.Crew       — orchestrates multi-agent collaboration
+  - crewai.Process    — sequential execution strategy
+  - crewai.LLM        — AWS Bedrock via litellm integration
+  - crewai.tools.BaseTool — custom tools (KB retrieval, scraping)
 """
 
 import json
+import os
 import traceback
 from datetime import datetime
 
+from crewai import Agent, Crew, LLM, Process, Task
+
+from backend.agents.compliance_mapper import create_compliance_mapper
+from backend.agents.regulatory_analyst import create_regulatory_analyst
+from backend.agents.remediation_planner import create_remediation_planner
 from backend.database import save_item, url_exists
 from backend.models.schemas import (
     AffectedControl,
@@ -23,9 +43,35 @@ from backend.models.schemas import (
 from backend.services.kb_service import retrieve
 from backend.services.normalizer import build_regulatory_item
 from backend.services.scraper import deduplicate, scrape_all_sources
-from backend.tasks.analyst_tasks import run_analyst_task
-from backend.tasks.mapper_tasks import run_mapper_task
-from backend.tasks.planner_tasks import run_planner_task
+from backend.tasks.analyst_tasks import create_analyst_task
+from backend.tasks.mapper_tasks import create_mapper_task
+from backend.tasks.planner_tasks import create_planner_task
+from backend.tools.kb_retrieval_tool import KBRetrievalTool
+
+
+# ─── CrewAI LLM Configuration ────────────────────────────────────────
+# CrewAI uses LiteLLM under the hood for Bedrock integration.
+# The LLM instance is shared across all agents in the crew.
+
+
+def _create_bedrock_llm() -> LLM:
+    """
+    Create a CrewAI LLM instance configured for AWS Bedrock.
+
+    CrewAI's LLM class wraps litellm, so we use the 'bedrock/' prefix
+    to route requests to Amazon Bedrock. AWS credentials are read
+    from environment variables automatically by litellm/boto3.
+    """
+    model_id = os.getenv("BEDROCK_MODEL_ID", "amazon.nova-pro-v1:0")
+
+    return LLM(
+        model=f"bedrock/{model_id}",
+        temperature=0.3,
+        max_tokens=4096,
+    )
+
+
+# ─── JSON Parsing Helpers ────────────────────────────────────────────
 
 
 def _safe_parse_json(raw_output: str) -> dict:
@@ -66,7 +112,7 @@ def _safe_parse_json(raw_output: str) -> dict:
 
 
 def _parse_analyst_output(raw_output: str, raw_item: RawScrapedItem) -> AnalystOutput:
-    """Parse the analyst agent's output into a structured AnalystOutput."""
+    """Parse the analyst agent's CrewAI task output into a structured AnalystOutput."""
     data = _safe_parse_json(raw_output)
 
     return AnalystOutput(
@@ -85,7 +131,7 @@ def _parse_analyst_output(raw_output: str, raw_item: RawScrapedItem) -> AnalystO
 
 
 def _parse_mapping_output(raw_output: str) -> MappingOutput:
-    """Parse the mapper agent's output into a structured MappingOutput."""
+    """Parse the mapper agent's CrewAI task output into a structured MappingOutput."""
     data = _safe_parse_json(raw_output)
 
     affected = []
@@ -106,7 +152,7 @@ def _parse_mapping_output(raw_output: str) -> MappingOutput:
 
 
 def _parse_remediation_output(raw_output: str) -> RemediationOutput:
-    """Parse the planner agent's output into a structured RemediationOutput."""
+    """Parse the planner agent's CrewAI task output into a structured RemediationOutput."""
     data = _safe_parse_json(raw_output)
 
     actions = []
@@ -130,13 +176,17 @@ def _parse_remediation_output(raw_output: str) -> RemediationOutput:
     return RemediationOutput(recommended_actions=actions)
 
 
+# ─── CrewAI Pipeline Execution ───────────────────────────────────────
+
+
 def process_single_item(raw_item: RawScrapedItem) -> RegulatoryItem | None:
     """
-    Run the full 3-agent pipeline on a single scraped item.
+    Run the full 3-agent CrewAI pipeline on a single scraped item.
 
-    1. Regulatory Analyst → structured intelligence
-    2. Compliance Mapper → control mapping (uses KB)
-    3. Remediation Planner → action plan
+    Creates a CrewAI Crew with three agents running in sequential mode:
+      1. Regulatory Analyst Agent  → structured intelligence
+      2. Compliance Mapper Agent   → control mapping (uses KB tool)
+      3. Remediation Planner Agent → action plan
 
     Returns a fully assembled RegulatoryItem, or None on failure.
     """
@@ -146,46 +196,122 @@ def process_single_item(raw_item: RawScrapedItem) -> RegulatoryItem | None:
     print(f"{'='*60}\n")
 
     try:
-        # ── Step 1: Regulatory Analyst ────────────────────────────
-        print("🔬 Step 1/3: Regulatory Analyst...")
-        analyst_raw = run_analyst_task(raw_item)
+        # ── Initialize CrewAI LLM (AWS Bedrock) ──────────────────
+        llm = _create_bedrock_llm()
+        print(f"🤖 CrewAI LLM initialized: {llm.model}")
+
+        # ── Create CrewAI Agents ─────────────────────────────────
+        print("🔧 Creating CrewAI agents...")
+
+        analyst_agent = create_regulatory_analyst(llm=llm)
+        print(f"   ✅ Agent created: {analyst_agent.role}")
+
+        # Create KB retrieval tool for the mapper agent
+        kb_tool = KBRetrievalTool()
+        mapper_agent = create_compliance_mapper(llm=llm, tools=[kb_tool])
+        print(f"   ✅ Agent created: {mapper_agent.role} (with KB tool)")
+
+        planner_agent = create_remediation_planner(llm=llm)
+        print(f"   ✅ Agent created: {planner_agent.role}")
+
+        # ── Pre-fetch KB context for the mapper ──────────────────
+        # We also pass KB context directly in the task description
+        # as a fallback in case the agent doesn't invoke the tool.
+        kb_query = f"{raw_item.title} {raw_item.raw_content[:200]}"
+        kb_chunks = retrieve(kb_query, top_k=5)
+        kb_context = (
+            "\n\n---\n\n".join(kb_chunks) if kb_chunks else "No KB results."
+        )
+
+        # ── Create CrewAI Tasks (with context chaining) ──────────
+        print("\n📝 Creating CrewAI tasks with sequential context chaining...")
+
+        analyst_task = create_analyst_task(
+            agent=analyst_agent,
+            raw_item=raw_item,
+        )
+        print("   ✅ Task 1/3: Regulatory Analysis")
+
+        # We need obligations for the mapper task description.
+        # For the first pass, we provide the raw content as context.
+        # The mapper will also receive the analyst's output via
+        # CrewAI's context chaining (context=[analyst_task]).
+        preliminary_obligations = [
+            f"Review: {raw_item.raw_content[:200]}"
+        ]
+
+        mapper_task = create_mapper_task(
+            agent=mapper_agent,
+            analyst_task=analyst_task,
+            kb_context=kb_context,
+            obligations=preliminary_obligations,
+            regulatory_topic="Regulatory Compliance",
+        )
+        print("   ✅ Task 2/3: Compliance Mapping (context → analyst)")
+
+        planner_task = create_planner_task(
+            agent=planner_agent,
+            analyst_task=analyst_task,
+            mapper_task=mapper_task,
+            title=raw_item.title,
+            summary=raw_item.raw_content[:500],
+            obligations=preliminary_obligations,
+            control_gaps=[],
+            urgency="medium",
+        )
+        print("   ✅ Task 3/3: Remediation Planning (context → analyst + mapper)")
+
+        # ── Assemble and Execute the CrewAI Crew ─────────────────
+        print("\n🚀 Assembling CrewAI Crew (Process.sequential)...")
+
+        crew = Crew(
+            agents=[analyst_agent, mapper_agent, planner_agent],
+            tasks=[analyst_task, mapper_task, planner_task],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+        print("⚡ Kicking off CrewAI crew execution...")
+        print(f"   Agents: {len(crew.agents)}")
+        print(f"   Tasks:  {len(crew.tasks)}")
+        print(f"   Process: {crew.process}")
+        print("-" * 40)
+
+        # crew.kickoff() runs all tasks sequentially through the agents
+        crew_output = crew.kickoff()
+
+        print(f"\n{'─'*40}")
+        print("✅ CrewAI crew execution complete!")
+        print(f"{'─'*40}")
+
+        # ── Parse CrewAI outputs ─────────────────────────────────
+        # CrewAI returns a CrewOutput object. We extract task results
+        # from each task's output attribute.
+
+        # Get individual task outputs
+        analyst_raw = str(analyst_task.output) if analyst_task.output else ""
+        mapper_raw = str(mapper_task.output) if mapper_task.output else ""
+        planner_raw = str(planner_task.output) if planner_task.output else ""
+
+        # If individual task outputs are empty, use the final crew output
+        if not analyst_raw.strip():
+            analyst_raw = str(crew_output)
+        if not planner_raw.strip():
+            planner_raw = str(crew_output)
+
+        # Parse structured outputs
         analyst_output = _parse_analyst_output(analyst_raw, raw_item)
-        print(f"   ✅ Analyst done — urgency={analyst_output.urgency}, "
+        print(f"   📊 Analyst: urgency={analyst_output.urgency}, "
               f"relevance={analyst_output.relevance_score}")
 
-        # ── Step 2: Compliance Mapper (with KB retrieval) ─────────
-        print("\n🗺️  Step 2/3: Compliance Mapper...")
-
-        # Query the Knowledge Base for relevant controls
-        kb_query = (
-            f"{analyst_output.regulatory_topic} "
-            f"{' '.join(analyst_output.obligations[:3])}"
-        )
-        kb_chunks = retrieve(kb_query, top_k=5)
-        kb_context = "\n\n---\n\n".join(kb_chunks) if kb_chunks else "No KB results."
-
-        mapper_raw = run_mapper_task(
-            analyst_output.obligations,
-            kb_context,
-            analyst_output.regulatory_topic,
-        )
         mapping_output = _parse_mapping_output(mapper_raw)
-        print(f"   ✅ Mapper done — {len(mapping_output.affected_controls)} controls, "
+        print(f"   🗺️  Mapper: {len(mapping_output.affected_controls)} controls, "
               f"{len(mapping_output.control_gaps)} gaps")
 
-        # ── Step 3: Remediation Planner ───────────────────────────
-        print("\n📝 Step 3/3: Remediation Planner...")
-        planner_raw = run_planner_task(
-            analyst_output.title,
-            analyst_output.summary,
-            analyst_output.obligations,
-            mapping_output.control_gaps,
-            analyst_output.urgency,
-        )
         remediation_output = _parse_remediation_output(planner_raw)
-        print(f"   ✅ Planner done — {len(remediation_output.recommended_actions)} actions")
+        print(f"   📝 Planner: {len(remediation_output.recommended_actions)} actions")
 
-        # ── Assemble final item ───────────────────────────────────
+        # ── Assemble final item ──────────────────────────────────
         item = build_regulatory_item(
             raw_item, analyst_output, mapping_output, remediation_output
         )
@@ -194,14 +320,20 @@ def process_single_item(raw_item: RawScrapedItem) -> RegulatoryItem | None:
         return item
 
     except Exception as e:
-        print(f"\n❌ Pipeline failed for '{raw_item.title[:60]}': {e}")
+        print(f"\n❌ CrewAI pipeline failed for '{raw_item.title[:60]}': {e}")
         traceback.print_exc()
         return None
 
 
 def run_pipeline(max_items: int = 5) -> list[RegulatoryItem]:
     """
-    Full pipeline: scrape → deduplicate → process each item through 3 agents.
+    Full CrewAI pipeline: scrape → deduplicate → process each item
+    through the 3-agent CrewAI crew.
+
+    Each regulatory item gets its own CrewAI Crew execution with:
+      - 3 agents (Analyst, Mapper, Planner)
+      - 3 tasks (with context chaining)
+      - Process.sequential execution
 
     Args:
         max_items: Maximum number of items to process per run (controls cost).
@@ -210,7 +342,12 @@ def run_pipeline(max_items: int = 5) -> list[RegulatoryItem]:
         List of successfully processed RegulatoryItem objects.
     """
     print("\n" + "=" * 60)
-    print("🚀 REGULATORY INTELLIGENCE PIPELINE")
+    print("🚀 REGULATORY INTELLIGENCE PIPELINE (Powered by CrewAI)")
+    print("=" * 60)
+    print("   Framework: CrewAI Multi-Agent Orchestration")
+    print("   LLM: AWS Bedrock (via crewai.LLM)")
+    print("   Process: Sequential (Analyst → Mapper → Planner)")
+    print("   Tools: KBRetrievalTool (BaseTool)")
     print("=" * 60)
 
     # Step 1: Scrape
@@ -236,20 +373,21 @@ def run_pipeline(max_items: int = 5) -> list[RegulatoryItem]:
 
     # Limit processing
     items_to_process = unique_items[:max_items]
-    print(f"\n📊 Processing {len(items_to_process)} of {len(unique_items)} new items\n")
+    print(f"\n📊 Processing {len(items_to_process)} of {len(unique_items)} new items")
+    print(f"   Each item → 1 CrewAI Crew (3 agents, 3 tasks)\n")
 
-    # Step 3: Process each through the agent pipeline
+    # Step 3: Process each through the CrewAI agent pipeline
     results: list[RegulatoryItem] = []
     for i, raw_item in enumerate(items_to_process, 1):
         print(f"\n{'─'*40}")
-        print(f"  Item {i}/{len(items_to_process)}")
+        print(f"  CrewAI Crew {i}/{len(items_to_process)}")
         print(f"{'─'*40}")
         result = process_single_item(raw_item)
         if result:
             results.append(result)
 
     print(f"\n{'='*60}")
-    print(f"✅ PIPELINE COMPLETE: {len(results)}/{len(items_to_process)} items processed")
+    print(f"✅ CREWAI PIPELINE COMPLETE: {len(results)}/{len(items_to_process)} items processed")
     print(f"{'='*60}\n")
 
     return results

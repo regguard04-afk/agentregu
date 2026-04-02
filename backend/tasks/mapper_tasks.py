@@ -1,21 +1,43 @@
-"""Tasks for the Compliance Mapping Agent."""
+"""
+Tasks for the Compliance Mapping Agent — built with CrewAI.
 
-from backend.agents.compliance_mapper import SYSTEM_PROMPT
-from backend.services.bedrock_service import invoke_llm
+Uses crewai.Task to define structured task definitions that are
+assigned to the Compliance Mapper agent during crew execution.
+The mapper task receives context from the analyst task output.
+"""
+
+from crewai import Agent, Task
 
 
-def run_mapper_task(
-    obligations: list[str],
+def create_mapper_task(
+    agent: Agent,
+    analyst_task: Task,
     kb_context: str,
+    obligations: list[str],
     regulatory_topic: str,
-) -> str:
+) -> Task:
     """
-    Run the compliance mapping task.
-    Returns the raw LLM response (JSON string).
-    """
-    obligations_text = "\n".join(f"  {i+1}. {ob}" for i, ob in enumerate(obligations))
+    Create a CrewAI Task for compliance mapping.
 
-    user_prompt = f"""Map the following regulatory obligations to internal compliance controls.
+    This task maps regulatory obligations to internal controls using
+    the Knowledge Base context. It receives context from the analyst
+    task to chain outputs sequentially.
+
+    Args:
+        agent: The CrewAI Compliance Mapper agent.
+        analyst_task: The preceding analyst task (for context chaining).
+        kb_context: Retrieved Knowledge Base text chunks.
+        obligations: List of regulatory obligations from the analyst.
+        regulatory_topic: The regulatory topic category.
+
+    Returns:
+        A crewai.Task instance ready for crew execution.
+    """
+    obligations_text = "\n".join(
+        f"  {i + 1}. {ob}" for i, ob in enumerate(obligations)
+    )
+
+    description = f"""Map the following regulatory obligations to internal compliance controls.
 
 ## Regulatory Obligations
 
@@ -57,4 +79,15 @@ Produce a JSON object with EXACTLY these fields:
 
 Return ONLY the JSON object, no markdown fences, no extra text."""
 
-    return invoke_llm(SYSTEM_PROMPT, user_prompt)
+    expected_output = (
+        "A valid JSON object containing: affected_controls (array of objects "
+        "with control_id, control_name, policy_name) and control_gaps "
+        "(array of strings describing uncovered obligations)."
+    )
+
+    return Task(
+        description=description,
+        expected_output=expected_output,
+        agent=agent,
+        context=[analyst_task],  # CrewAI sequential context chaining
+    )
