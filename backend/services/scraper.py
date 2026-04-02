@@ -8,7 +8,9 @@ and saves raw content to data/raw/.
 import json
 import re
 import traceback
+from collections import defaultdict
 from datetime import datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Optional
 
@@ -111,7 +113,7 @@ def _scrape_rss(source: dict) -> list[RawScrapedItem]:
             feed = feedparser.parse(resp.content)
         except Exception:
             feed = feedparser.parse(source["url"])
-        for entry in feed.entries[:10]:  # limit to latest 10
+        for entry in feed.entries[:5]:  # limit to latest 5 per feed
             title = entry.get("title", "Untitled")
             link = entry.get("link", source["url"])
             published = _parse_date(
@@ -372,6 +374,22 @@ def scrape_all_sources() -> list[RawScrapedItem]:
     if not all_items:
         print("\n⚠️  No items from live sources. Using seed data...\n")
         all_items = _get_seed_items()
+
+    # Interleave items from different sources so all regulators
+    # get represented when the pipeline applies its max_items limit.
+    by_source: dict[str, list[RawScrapedItem]] = defaultdict(list)
+    for item in all_items:
+        by_source[item.source].append(item)
+
+    interleaved: list[RawScrapedItem] = []
+    source_iters = [iter(v) for v in by_source.values()]
+    for group in zip_longest(*source_iters):
+        for item in group:
+            if item is not None:
+                interleaved.append(item)
+
+    all_items = interleaved
+    print(f"  📋 Sources breakdown: {', '.join(f'{k}={len(v)}' for k, v in by_source.items())}")
 
     # Save raw data
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")

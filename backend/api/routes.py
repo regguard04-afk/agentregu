@@ -304,7 +304,7 @@ def trigger_analysis():
     def _run():
         _pipeline_status["running"] = True
         try:
-            results = run_pipeline(max_items=5)
+            results = run_pipeline(max_items=8)
             _pipeline_status["last_run"] = datetime.utcnow().isoformat()
             _pipeline_status["last_result"] = f"{len(results)} items processed"
         except Exception as e:
