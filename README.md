@@ -207,10 +207,6 @@ regulatory-intelligence-agent/
 └── infra/               # IAM policy templates
 ```
 
-## 👥 Team
-
-- **Person 1** (Backend) — This codebase
-- **Person 2** (Frontend) — Consumes the `/api/*` endpoints
 
 ## 📄 License
 
